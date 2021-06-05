@@ -1,0 +1,1 @@
+These are 64-bit binaries of libwbxml and libexpat compiled on VS2019.
