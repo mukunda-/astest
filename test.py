@@ -7,8 +7,10 @@
 # Please note this script is not designed to be reusable. A lot of things are hardcoded
 #  for my specific case.
 #/////////////////////////////////////////////////////////////////////////////////////////
-import requests, urllib3, base64, struct, clipboard, os, code, json, random, re, string
+import requests, urllib3, base64, struct, clipboard, os
+import code, json, random, re, string, time
 import xml.etree.ElementTree as ET
+from email import utils
 from datetime import datetime
 #/////////////////////////////////////////////////////////////////////////////////////////
 
@@ -105,6 +107,10 @@ def getcmd( command, params={}, policy_key=get_key("policy") ):
 # Set the account and server to be used for tests. This is used first.
 def set_account( server, username, password, endpoint="Microsoft-Server-ActiveSync", https=False, deviceid=None ):
    print( "OK, setting account data.")
+
+   os.system( "del *.tmp" )
+   os.system( "del data-*" )
+   os.system( "del key-*")
    
    if deviceid == None:
       print( "- Generating device ID.")
@@ -168,7 +174,7 @@ def make_body( content ):
 <!DOCTYPE ActiveSync PUBLIC "-//MICROSOFT//DTD ActiveSync//EN" "http://www.microsoft.com/">'''
       + content.strip() )
 
-   os.system( f"libwbxml\\xml2wbxml.exe -a -o {outpath} {inpath}" )
+   os.system( f"libwbxml\\xml2wbxml.exe -a -n -o {outpath} {inpath}" )
    with open( outpath, "rb" ) as f:
       return f.read()
 
@@ -606,6 +612,93 @@ def decode_b64():
    converted = base64.b64decode( text.encode("ascii") ).decode("utf-8")
    print( "Output:", converted )
    clipboard.copy( converted )
+
+def makejunk( length ):
+   return "".join(random.choices(string.digits+string.ascii_letters,k=length))
+
+gnow = int(time.time())
+#-----------------------------------------------------------------------------------------
+def test_sendmail( clientid, subject, body, recipient, date, attachment_size=0, save_in_sent_items=True ):
+   account = get_data( "account" )
+   date = utils.formatdate(date)
+
+   attachment = ""
+   if attachment_size > 0:
+      attachment = f'''--main-email-container
+Content-Type: text/plain; name="attachment.txt"
+Content-Disposition: attachment; filename="attachment.txt"
+
+{makejunk( attachment_size )}
+'''
+
+   print( "Creating email..." )
+   mime = f'''Date: {date}
+From: {account["username"]}
+To: {recipient}
+Subject: {subject}
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="main-email-container"
+
+--main-email-container
+Content-Type: multipart/alternative; boundary="email-piece-boundary"
+
+--email-piece-boundary
+Content-Type: text/plain; charset="utf-8"
+
+{body}
+--email-piece-boundary
+Content-Type: text/html; charset="utf-8"
+
+<html><head></head><body>{body}</body></html>
+--email-piece-boundary--
+{attachment}--main-email-container--
+'''
+
+   print( mime )
+   print('--')
+
+   #mime = mime.encode("utf-8")
+   #mime = base64.b64encode( mime ).decode("ascii")
+
+   #print('b64content')
+   #print(mime)
+   
+   save_in_sent_items = "<SaveInSentItems/>" if save_in_sent_items else ""
+
+   # The MIME field is a huge can of worms. Don't be fooled -- it's not a base64 string.
+   # It's passed as an 'opaque object'. The text should be visible in the protocol as 
+   # normal plain text.
+   print( "Sending email..." )
+   body = make_body(f'''
+      <SendMail xmlns="ComposeMail:">
+         <ClientId>{clientid}</ClientId>
+         {save_in_sent_items}
+         <MIME><![CDATA[{mime}]]></MIME>
+      </SendMail>
+   ''')
+
+   # Don't ask me why it ends up as REPLACEWITHBODYTEXTL==
+
+######
+   print("THE BODY CONTGENT IS RIGHTHERE")
+   print( body )
+   xml = convert_wbxml( body )
+   print(xml)
+   # body = body.replace( b"REPLACEWITHBODYTEXTLOA==", mime )
+   # print(body)
+   # return
+   # print( body )
+   # xml = convert_wbxml( body )
+   # print(xml)
+   
+   cmd = getcmd( "sendmail" )
+   a = requests.post( f"{get_service_url()}?{cmd}", data=body, headers=get_request_headers(),verify=False )
+   print( "Got", a.status_code, "response" )
+   if len(a.content) == 0:
+      print( "<Empty response.>" )
+      return
+   xml = convert_wbxml( a.content )
+   print( xml )
 
 # Open the python interpreter after our program loads.
 code.interact( local=locals() )
