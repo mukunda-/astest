@@ -14,6 +14,25 @@ from email import utils
 from datetime import datetime
 #/////////////////////////////////////////////////////////////////////////////////////////
 
+import logging
+# These two lines enable debugging at httplib level (requests->urllib3->http.client)
+# You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
+# The only thing missing will be the response.body which is not logged.
+try:
+    import http.client as http_client
+except ImportError:
+    # Python 2
+    import httplib as http_client
+http_client.HTTPConnection.debuglevel = 1
+
+# You must initialize logging, otherwise you'll not see debug output.
+logging.basicConfig()
+logging.getLogger().setLevel(logging.DEBUG)
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
+
+
 # We want to avoid any SSL warnings and such.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -88,11 +107,15 @@ def getcmd( command, params={}, policy_key=get_key("policy") ):
    print( "Building command:", command )
    print( "Params:", params )
 
+   # https://docs.microsoft.com/en-us/previous-versions/office/developer/exchange-server-interoperability-guidance/hh361570(v=exchg.140)
+   # their class adds a user
+   #params['user'] = "tbox"account['username']
+   #print("POLICYKEY", policy_key)
    header = struct.pack(
       f"<BBHB{len(de)}sBIB{len(device_type)}s",
       protocol_version, commands[command.lower()], locale,
       len(de), de,
-      4, policy_key,
+      4, int(policy_key),
       len(device_type), device_type
    )
 
@@ -108,13 +131,14 @@ def getcmd( command, params={}, policy_key=get_key("policy") ):
 def set_account( server, username, password, endpoint="Microsoft-Server-ActiveSync", https=False, deviceid=None ):
    print( "OK, setting account data.")
 
+   print( "- Deleting previous data files." )
    os.system( "del *.tmp" )
    os.system( "del data-*" )
    os.system( "del key-*")
    
    if deviceid == None:
       print( "- Generating device ID.")
-      deviceid = "testdevice" + "".join(random.choices(string.digits,k=16))
+      deviceid = "testdevice" + "".join(random.choices(string.digits,k=6))
    print( f"- deviceid = {deviceid}")
 
    set_data( "account", {
@@ -132,6 +156,8 @@ def get_service_url():
    protocol = "https" if account["https"] else "http"
    return f"{protocol}://{account['server']}/{account['endpoint']}"
 
+
+
 #-----------------------------------------------------------------------------------------
 # Get our general request headers including the basic auth.
 def get_request_headers():
@@ -141,7 +167,7 @@ def get_request_headers():
    return {
       "User-Agent": user_agent,
       "Authorization": f"Basic {auth}",
-      "Content-Type": "application/vnd.ms-sync"
+      "Content-Type": "application/vnd.ms-sync.wbxml"
    }
 
 #-----------------------------------------------------------------------------------------
@@ -174,7 +200,7 @@ def make_body( content ):
 <!DOCTYPE ActiveSync PUBLIC "-//MICROSOFT//DTD ActiveSync//EN" "http://www.microsoft.com/">'''
       + content.strip() )
 
-   os.system( f"libwbxml\\xml2wbxml.exe -a -n -o {outpath} {inpath}" )
+   os.system( f"libwbxml\\xml2wbxml.exe -a -n -v 1.3 -o {outpath} {inpath}" )
    with open( outpath, "rb" ) as f:
       return f.read()
 
@@ -204,12 +230,52 @@ def convert_wbxml( content ):
 # Test function to provision a new device. Must be done before other tests.
 # This will cache the username and password for authentication for other requests.
 def provision_device():
+   
    cmd = getcmd( "provision", policy_key=0 )
 
    print( "Requesting policy..." )
    # A lot of this stuff is just copied from wireshark inspections, mainly the WindowsMail
    #  handshake. Hardcoding some common stuff (though note a real android/iphone wouldn't
    #  report Windows OS)
+
+   # body = make_body(f'''
+   # <Provision xmlns="Provision:" xmlns:settings="Settings:">
+   #    <settings:DeviceInformation>
+   #       <settings:Set>
+   #          <settings:Model>MJohnson Test</settings:Model>
+   #          <settings:IMEI />
+   #          <settings:FriendlyName>MJOHNSONTEST</settings:FriendlyName>
+   #          <settings:OS>Windows 10.0.19041</settings:OS>
+   #          <settings:OSLanguage>English</settings:OSLanguage>
+   #          <settings:PhoneNumber />
+   #          <settings:MobileOperator>OperatorName</settings:MobileOperator>
+   #          <settings:EnableOutboundSMS>0</settings:EnableOutboundSMS>
+   #          <settings:UserAgent>{user_agent}</settings:UserAgent>
+   #       </settings:Set>
+   #    </settings:DeviceInformation>
+   #    <Policies>
+   #       <Policy>
+   #          <PolicyType>MS-EAS-Provisioning-WBXML</PolicyType>
+   #       </Policy>
+   #    </Policies>
+   # </Provision>''')
+
+   #sesh = requests.session()
+   #sesh.headers = { "Accept-Encoding": "*" }
+
+   # creds = get_data( "account" )
+   # auth = base64.b64encode( f"{creds['username']}:{creds['password']}".encode("ascii") ).decode("ascii")
+   # print( get_service_url() )
+   # a = sesh.options( f"{get_service_url()}/?User=tbox&DeviceId=testdevice9298129441744935&DeviceType=SP", verify=False, headers={
+      
+   #    "User-Agent": user_agent,
+   #    "Authorization": f"Basic {auth}",
+   #    "MS-ASProtocolVersion": "2.5"
+   # })
+   
+   #print( a.status_code )
+   #print( a.headers )
+   
    body = make_body(f'''
    <Provision xmlns="Provision:" xmlns:settings="Settings:">
       <settings:DeviceInformation>
@@ -217,12 +283,12 @@ def provision_device():
             <settings:Model>MJohnson Test</settings:Model>
             <settings:IMEI />
             <settings:FriendlyName>MJOHNSONTEST</settings:FriendlyName>
-            <settings:OS>Windows 10.0.19041</settings:OS>
+            <settings:OS>Test OS 1.0</settings:OS>
             <settings:OSLanguage>English</settings:OSLanguage>
             <settings:PhoneNumber />
-            <settings:MobileOperator>OperatorName</settings:MobileOperator>
-            <settings:EnableOutboundSMS>0</settings:EnableOutboundSMS>
             <settings:UserAgent>{user_agent}</settings:UserAgent>
+            <settings:EnableOutboundSMS>0</settings:EnableOutboundSMS>
+            <settings:MobileOperator>OperatorName</settings:MobileOperator>
          </settings:Set>
       </settings:DeviceInformation>
       <Policies>
@@ -231,7 +297,12 @@ def provision_device():
          </Policy>
       </Policies>
    </Provision>''')
-   print( f"{get_service_url()}?{cmd}", body, get_request_headers(),False )
+   #return;
+   #print('---')
+   #print(body)
+   #print('---')
+
+   #print( f"{get_service_url()}?{cmd}", body, get_request_headers(),False )
    a = requests.post( f"{get_service_url()}?{cmd}", data=body, headers=get_request_headers(),verify=False )
    print( "Got", a.status_code, "response" )
    if( a.status_code != 200 ):
@@ -262,10 +333,19 @@ def provision_device():
       </Provision>''')
    # We will also use this policy key in other commands.
 
+   cmd = getcmd( "provision" )
    a = requests.post( f"{get_service_url()}?{cmd}", data=body, headers=get_request_headers(),verify=False )
    print( "Got", a.status_code, "response" )
    xml = convert_wbxml( a.content )
    print( xml )
+   xml = ET.fromstring(xml)
+
+   # use the second policy key.
+   policy_key = (xml.find("{Provision:}Policies")
+                    .find("{Provision:}Policy")
+                    .find("{Provision:}PolicyKey")).text
+
+   set_key( "policy", policy_key )
 
    # Note that Windows Mail also sends a Settings command here. It contains much the same
    #  data as the initial provision request.
@@ -299,7 +379,10 @@ def folder_sync():
    sync_key = (xml.find("{FolderHierarchy:}SyncKey")).text
    set_key( "foldersync", sync_key )
 
-   print( "Decoding sync key:", base64.b64decode(sync_key.encode('ascii')) )
+   try:
+      print( "Decoding sync key:", base64.b64decode(sync_key.encode('ascii')) )
+   except:
+      print( "sync key =", sync_key )
 
    # All folders will be "additions" to the empty state.
    folders = []
@@ -389,16 +472,25 @@ def test_sync_reset( folder="Inbox" ):
    for child in xml.find("{AirSync:}Collections").findall("{AirSync:}Collection"):
       sync_key = child.find("{AirSync:}SyncKey").text
       data.append({
-         "class"         : child.find("{AirSync:}Class").text,
+         #"class"         : child.find("{AirSync:}Class").text,
          "sync_key"      : child.find("{AirSync:}SyncKey").text,
          "collection_id" : child.find("{AirSync:}CollectionId").text,
          "status"        : child.find("{AirSync:}Status").text,
       })
-      print( "Decoding sync key:", base64.b64decode(sync_key.encode('ascii')) )
+
+      try:
+         print( "Decoding sync key:", base64.b64decode(sync_key.encode('ascii')) )
+      except:
+         print( "sync key:", sync_key )
 
    set_data( f"sync-{folder.lower()}", data )
    set_data( f"emails-{folder.lower()}", {} )
 
+def get_readable_sync_key( key ):
+   try:
+      base64.b64decode(key.encode('ascii'))
+   except:
+      return key
 
 #-----------------------------------------------------------------------------------------
 # Test the sync command
@@ -412,9 +504,7 @@ def test_sync( folder="Inbox", update_synckey=True, kill_emails=False, setread=N
    syncdata = get_data( f"sync-{folder.lower()}" )
    # Use entry 0
    
-   print( "Current sync key:",
-            base64.b64decode(syncdata[0]["sync_key"].encode('ascii')),
-            syncdata[0]["sync_key"] )
+   print( "Current sync key:", get_readable_sync_key(syncdata[0]["sync_key"]) )
 
    # Test if making changes while syncing can cause breakage.
    if setread != None:
@@ -467,14 +557,13 @@ def test_sync( folder="Inbox", update_synckey=True, kill_emails=False, setread=N
    for child in xml.find("{AirSync:}Collections").findall("{AirSync:}Collection"):
       # Try NOT updating sync key
       data.append({
-         "class"         : child.find("{AirSync:}Class").text,
+         #"class"         : child.find("{AirSync:}Class").text,
          "sync_key"      : child.find("{AirSync:}SyncKey").text,
          "collection_id" : child.find("{AirSync:}CollectionId").text,
          "status"        : child.find("{AirSync:}Status").text,
       })
 
-      print( "Decoding sync key:",
-             base64.b64decode(child.find("{AirSync:}SyncKey").text.encode('ascii')) )
+      print( "Decoding sync key:", get_readable_sync_key(syncdata[0]["sync_key"]) )
 
       if child.find("{AirSync:}Commands") == None: continue
 
@@ -609,7 +698,11 @@ def decode_clip():
 def decode_b64():
    text = clipboard.paste()
    print( "Input:", text )
-   converted = base64.b64decode( text.encode("ascii") ).decode("utf-8")
+   converted = base64.b64decode( text.encode("ascii") )
+   print( "Raw:", converted )
+   with open( "decode-b64.tmp", "wb" ) as f:
+      f.write( converted )
+   converted = converted.decode("utf-8")
    print( "Output:", converted )
    clipboard.copy( converted )
 
