@@ -61,7 +61,9 @@ def set_key( name, value ):
 
 #-----------------------------------------------------------------------------------------
 # Build an ActiveSync command string, appended to requests as a query param
-def getcmd( command, params={}, policy_key=get_key("policy") ):
+def getcmd( command, params={}, policy_key=None ):
+   if policy_key == None: policy_key = get_key("policy")
+
    account = get_data( "account" )
 
    device_type = b"SP" # smartphone
@@ -110,7 +112,7 @@ def getcmd( command, params={}, policy_key=get_key("policy") ):
    # https://docs.microsoft.com/en-us/previous-versions/office/developer/exchange-server-interoperability-guidance/hh361570(v=exchg.140)
    # their class adds a user
    #params['user'] = "tbox"account['username']
-   #print("POLICYKEY", policy_key)
+   print("POLICYKEY", policy_key)
    header = struct.pack(
       f"<BBHB{len(de)}sBIB{len(device_type)}s",
       protocol_version, commands[command.lower()], locale,
@@ -237,44 +239,6 @@ def provision_device():
    # A lot of this stuff is just copied from wireshark inspections, mainly the WindowsMail
    #  handshake. Hardcoding some common stuff (though note a real android/iphone wouldn't
    #  report Windows OS)
-
-   # body = make_body(f'''
-   # <Provision xmlns="Provision:" xmlns:settings="Settings:">
-   #    <settings:DeviceInformation>
-   #       <settings:Set>
-   #          <settings:Model>MJohnson Test</settings:Model>
-   #          <settings:IMEI />
-   #          <settings:FriendlyName>MJOHNSONTEST</settings:FriendlyName>
-   #          <settings:OS>Windows 10.0.19041</settings:OS>
-   #          <settings:OSLanguage>English</settings:OSLanguage>
-   #          <settings:PhoneNumber />
-   #          <settings:MobileOperator>OperatorName</settings:MobileOperator>
-   #          <settings:EnableOutboundSMS>0</settings:EnableOutboundSMS>
-   #          <settings:UserAgent>{user_agent}</settings:UserAgent>
-   #       </settings:Set>
-   #    </settings:DeviceInformation>
-   #    <Policies>
-   #       <Policy>
-   #          <PolicyType>MS-EAS-Provisioning-WBXML</PolicyType>
-   #       </Policy>
-   #    </Policies>
-   # </Provision>''')
-
-   #sesh = requests.session()
-   #sesh.headers = { "Accept-Encoding": "*" }
-
-   # creds = get_data( "account" )
-   # auth = base64.b64encode( f"{creds['username']}:{creds['password']}".encode("ascii") ).decode("ascii")
-   # print( get_service_url() )
-   # a = sesh.options( f"{get_service_url()}/?User=tbox&DeviceId=testdevice9298129441744935&DeviceType=SP", verify=False, headers={
-      
-   #    "User-Agent": user_agent,
-   #    "Authorization": f"Basic {auth}",
-   #    "MS-ASProtocolVersion": "2.5"
-   # })
-   
-   #print( a.status_code )
-   #print( a.headers )
    
    body = make_body(f'''
    <Provision xmlns="Provision:" xmlns:settings="Settings:">
@@ -297,10 +261,6 @@ def provision_device():
          </Policy>
       </Policies>
    </Provision>''')
-   #return;
-   #print('---')
-   #print(body)
-   #print('---')
 
    #print( f"{get_service_url()}?{cmd}", body, get_request_headers(),False )
    a = requests.post( f"{get_service_url()}?{cmd}", data=body, headers=get_request_headers(),verify=False )
