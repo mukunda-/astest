@@ -767,7 +767,8 @@ def xml_pretty_print(xml):
 #------------------------------------------------------------------------------
 # Decode all WBXML portions of a given Kerio Connect debug log.
 # infile: filename to decode, will write to <infile>.decoded.log
-def decode_keriolog(infile):
+# devicefilter: only show data that was sent/received to this device ID
+def decode_keriolog(infile, devicefilter=""):
    with open(infile + ".decoded.log", "w", encoding="utf8") as fout:
       with open(infile, "r", encoding="utf8") as fin:
          buffer = []
@@ -786,8 +787,20 @@ def decode_keriolog(infile):
             buffer.clear()
             
          state = "seek"
+         skipdevice = False
          for line in fin:
             print(line)
+            if devicefilter:
+               m = re.search(r"{activesync} Receiving request from .+: Version: .+Device Id: ([0-9a-fA-F]+), Policy Key.+", line)
+               if m:
+                  if m[1] == devicefilter:
+                     skipdevice = False
+                  else:
+                     skipdevice = True
+            
+            if skipdevice: continue
+               
+            
             m = re.search(r"{activesync} ([0-9a-f]+): ([0-9a-f]+) \|", line)
             if m:
                if m[1] == "000000":
