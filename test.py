@@ -12,6 +12,8 @@ import code, json, random, re, string, time
 import xml.etree.ElementTree as ET
 from email import utils
 from datetime import datetime
+from bs4 import BeautifulSoup
+import traceback
 #/////////////////////////////////////////////////////////////////////////////////////////
 
 import logging
@@ -640,11 +642,13 @@ def pin(): # print index
 #  data into readable xml.
 def decode_clip():
    text = clipboard.paste()
+   
    if text.find( "{activesync}" ) != -1:
       print( "Debuglog detected. Cleaning up text." )
       # Clean up input.
-      text = "\n".join(re.findall( r"{activesync} \d+: ([0-9a-f]+) \|", text ))
-
+      text = "\n".join(re.findall( r"{activesync} [0-9a-f]+: ([0-9a-f]+) \|", text ))
+      
+   print ( text )
    # Simple cleanup
    text = re.sub( r"[\s]", "", text )
    bs = bytes.fromhex( text )
@@ -752,6 +756,53 @@ Content-Type: text/html; charset="utf-8"
       return
    xml = convert_wbxml( a.content )
    print( xml )
+   
+def xml_pretty_print(xml):
+   bs = BeautifulSoup(xml, 'xml')
+   return bs.prettify()
+   #element = ET.XML(xml)
+   #ET.indent(element)
+   #return ET.tostring(element, encoding='utf8')
+   
+#------------------------------------------------------------------------------
+# Decode all WBXML portions of a given Kerio Connect debug log.
+# infile: filename to decode, will write to <infile>.decoded.log
+def decode_keriolog(infile):
+   with open(infile + ".decoded.log", "w", encoding="utf8") as fout:
+      with open(infile, "r", encoding="utf8") as fin:
+         buffer = []
+         
+         def flush():
+            nonlocal buffer
+            if len(buffer) == 0: return
+            fout.write("---decoded wbxml---\n")
+            try:
+               xml = convert_wbxml( b"".join(buffer) )   
+               fout.write(xml_pretty_print(xml))
+            except Exception as err:
+               fout.write("<error decoding>\n")
+               traceback.print_exc(file=fout)
+            fout.write("-------------------\n")
+            buffer.clear()
+            
+         state = "seek"
+         for line in fin:
+            print(line)
+            m = re.search(r"{activesync} ([0-9a-f]+): ([0-9a-f]+) \|", line)
+            if m:
+               if m[1] == "000000":
+                  if state == "seek":
+                     state = "decode"
+                  elif state == "decode":
+                     state = "skip"
+               if state == "decode":
+                  buffer.append(bytes.fromhex(m[2]))
+               else:
+                  fout.write(line)
+            else:
+               flush()
+               state = "seek"
+               fout.write(line)
 
 # Open the python interpreter after our program loads.
 code.interact( local=locals() )
